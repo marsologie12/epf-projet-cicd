@@ -56,6 +56,26 @@ jobs:
           fetch-depth: 0                # tout l'historique, pas seulement le dernier commit
           persist-credentials: false
       - run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 git /repo -v
+  
+  notification :
+        - name: Notification Discord en cas d'échec
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ https://discord.com/api/webhooks/1574341714523721839/qMydTZ6s9JXBLyhOZfenUigMLadrBdlX7OVnrc7pySw-Da97THTz9I8291szAqpfgULJ }}
+        run: |
+          curl -H "Content-Type: application/json" -X POST -d "{
+            \"embeds\": [{
+              \"title\": \"❌ Échec de la CI - ${{ github.repository }}\",
+              \"description\": \"Le workflow **${{ github.workflow }}** a échoué sur la branche \`${{ github.ref_name }}\`.\",
+              \"url\": \"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
+              \"color\": 15158332,
+              \"fields\": [
+                { \"name\": \"Auteur\", \"value\": \"${{ github.actor }}\", \"inline\": true },
+                { \"name\": \"Commit\", \"value\": \"\`${{ github.sha }}\`\", \"inline\": true }
+              ]
+            }]
+          }" "$DISCORD_WEBHOOK"
+
 
   dependances:
     runs-on: ubuntu-latest
