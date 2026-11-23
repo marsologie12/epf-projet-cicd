@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']                     # se déclenche sur un tag v1.0.0, v1.1.0…
+
+permissions: {}                      # rien par défaut ; le job demande ce dont il a besoin
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write                # pour créer la release GitHub
+      packages: write                # pour pousser l'image sur GHCR
+    env:
+      VERSION: ${{ github.ref_name }}      # le nom du tag, ex. v1.0.0
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Construire l'image
+        run: docker build -t app --build-arg APP_VERSION="$VERSION" .
+
+      - name: Scanner l'image (Trivy)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.75.0 \
+            image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed app
+
+      - name: Test de démarrage en mode production
+        run: |
+          docker run -d -p 3000:3000 -e APP_ENV=production app
+          sleep 5
+          curl --fail http://localhost:3000/health
+
+      - name: Publier l'image sur GHCR
+        run: |
+          # GHCR exige un nom en minuscules : Mon-Login/Mon-Depot → mon-login/mon-depot
+          IMAGE="ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker tag app "$IMAGE:$VERSION"
+          docker tag app "$IMAGE:stable"
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE:stable"
+
+      - name: Créer la release GitHub
+        run: gh release create "$VERSION" --generate-notes
